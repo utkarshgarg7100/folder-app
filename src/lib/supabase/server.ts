@@ -26,8 +26,9 @@ export async function createServerSupabaseClient() {
           );
         } catch {
           // Called from a context where cookies can't be set (e.g. a Server
-          // Component render); safe to ignore since middleware refreshes
-          // the session on every request.
+          // Component render); safe to ignore since `src/proxy.ts` (Next.js 16's
+          // renamed middleware) calls updateSession() on every matched request,
+          // which refreshes the session and rewrites the auth cookies.
         }
       },
     },
