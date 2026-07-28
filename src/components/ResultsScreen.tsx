@@ -16,7 +16,7 @@ export default function ResultsScreen({ result, onStartOver }: ResultsScreenProp
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-12">
       <div className="mb-8 flex items-center justify-between">
-        <h1 className="text-3xl font-semibold text-ink">Folder</h1>
+        <h1 className="text-3xl font-semibold text-ink">Your results</h1>
         <button
           type="button"
           onClick={onStartOver}

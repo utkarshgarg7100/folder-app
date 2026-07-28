@@ -60,7 +60,9 @@ export default function UploadScreen({ onAnalyze, disabled }: UploadScreenProps)
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-6 py-16">
       <header className="mb-10 text-center">
-        <h1 className="text-4xl font-semibold text-ink">Folder</h1>
+        <h1 className="text-4xl font-semibold text-ink">
+          Make sense of your lab reports
+        </h1>
         <p className="mt-3 text-base text-ink-soft">
           Upload a lab report or scan — we&apos;ll pull out the numbers, flag
           anything unusual, and explain it in plain language.
