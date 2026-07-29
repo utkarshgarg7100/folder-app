@@ -86,10 +86,17 @@ bring each stage under the limit.
    `NEXT_PUBLIC_*` values are **inlined at build time**, so adding them after a
    deploy requires a *rebuild*, not just a restart. A build made without them
    ships with auth silently disabled.
-4. After deploying, add your deployment URL to Supabase under **Authentication
-   → URL Configuration**, as both the **Site URL** and an entry in **Redirect
-   URLs**. Without this, magic links redirect to `localhost` and sign-in
-   appears broken for everyone but you.
+4. In Supabase, set the **Magic Link** and **Confirm signup** email templates to
+   deliver the code rather than a link — the body must contain `{{ .Token }}`
+   (the 6-digit code) and no `{{ .ConfirmationURL }}` link. Sign-in asks the
+   user to type that code.
+
+   No **Redirect URLs** entry is needed, because nothing redirects. Sign-in is
+   deliberately a typed code, not a magic link: a link carries a single-use
+   token in a URL, and mail providers fetch that URL to screen it before the
+   recipient clicks. That fetch spends the token, so the real click always
+   arrives too late. A typed code can't be consumed by anything that merely
+   reads the email.
 
 ## Notes & limits
 
@@ -107,7 +114,7 @@ bring each stage under the limit.
 
 - Original uploaded files (PDF/image) are never stored, with or without an
   account — they're processed in memory for the request and discarded.
-- Signing in (email magic link, via Supabase) is optional. Guest use is
+- Signing in (emailed 6-digit code, via Supabase) is optional. Guest use is
   unaffected: no login wall, nothing saved, no history/trend features.
 - If you sign in, nothing is saved automatically. Data is persisted only for
   documents you explicitly click "Save to my history" on. What's stored is:

@@ -19,7 +19,10 @@ interface AuthContextValue {
   authEnabled: boolean;
   user: User | null;
   loading: boolean;
-  signInWithEmail: (email: string) => Promise<{ error: string | null }>;
+  /** Emails a 6-digit code. Does not sign the user in on its own. */
+  sendCode: (email: string) => Promise<{ error: string | null }>;
+  /** Exchanges the emailed code for a session. */
+  verifyCode: (email: string, code: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -38,48 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => (authEnabled ? createBrowserSupabaseClient() : null),
     [authEnabled]
   );
-
-  // Supabase's default email templates route through /auth/v1/verify, which
-  // hands the session back in a URL *fragment* (#access_token=...). Fragments
-  // are never sent to the server, so the server-side callback cannot see them
-  // and the user silently lands signed out. Editing the templates to use
-  // token_hash is the cleaner fix, but that is gated behind configuring custom
-  // SMTP, so we also recover the session here on the client.
-  //
-  // Browsers preserve the fragment across the callback's redirect, so it is
-  // still present by the time this mounts. setSession() writes the auth
-  // cookies, which is what makes the session visible to the server too.
-  useEffect(() => {
-    if (!supabase || typeof window === "undefined") return;
-    if (!window.location.hash.includes("access_token")) return;
-
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    const access_token = params.get("access_token");
-    const refresh_token = params.get("refresh_token");
-    if (!access_token || !refresh_token) return;
-
-    let active = true;
-    supabase.auth
-      .setSession({ access_token, refresh_token })
-      .then(({ error }) => {
-        if (!active) return;
-        if (error) {
-          console.error("[auth] could not restore session from URL:", error.message);
-          return;
-        }
-        // Strip the tokens from the address bar so they are not left in
-        // history, bookmarks or a screenshot. Also clears ?auth_error=1, which
-        // the server callback added before the fragment could be read.
-        window.history.replaceState(null, "", window.location.pathname);
-      })
-      .catch(() => {
-        /* onAuthStateChange below still governs the rendered state. */
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [supabase]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -112,21 +73,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [supabase]);
 
-  const signInWithEmail = useCallback(
+  // Deliberately a typed code, not a magic link.
+  //
+  // A magic link puts a single-use token in a URL, and a URL in an email is not
+  // a private channel: mail providers fetch it before the recipient does, to
+  // screen the destination. That fetch consumes the token and receives the
+  // session cookie, so the real click always arrives to a spent token. It was
+  // observed here directly — two verifications 1.15s apart, the first
+  // succeeding on a connection that was not the user's browser.
+  //
+  // A code the user types cannot be spent by anything that merely reads the
+  // email, and it is redeemed in the same browser that asked for it. No
+  // emailRedirectTo, so there is no redirect, no PKCE verifier that must
+  // survive a cross-domain hop, and no server callback route to keep correct.
+  const sendCode = useCallback(
     async (email: string): Promise<{ error: string | null }> => {
       if (!supabase) {
         return { error: "Sign-in is not configured on this deployment." };
       }
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error } = await supabase.auth.signInWithOtp({ email });
+      return { error: error?.message ?? null };
+    },
+    [supabase]
+  );
+
+  const verifyCode = useCallback(
+    async (email: string, code: string): Promise<{ error: string | null }> => {
+      if (!supabase) {
+        return { error: "Sign-in is not configured on this deployment." };
+      }
+      // type "email" covers both a first-time signup and a returning sign-in,
+      // so there is no action-type to get wrong.
+      const { error } = await supabase.auth.verifyOtp({
         email,
-        // Land on the app root, not /auth/callback. Supabase's default email
-        // templates return the session in a URL fragment, and only the client
-        // can read a fragment — routing through the server callback means a
-        // redirect first, and a fragment survives a redirect only by browser
-        // convention, not by guarantee. Landing directly on a client-rendered
-        // page removes that dependency entirely.
-        options: { emailRedirectTo: `${window.location.origin}/` },
+        token: code,
+        type: "email",
       });
+      // No setUser() here: verifyOtp writes the auth cookies and fires
+      // onAuthStateChange, which is the single place session state is applied.
       return { error: error?.message ?? null };
     },
     [supabase]
@@ -139,8 +123,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [supabase]);
 
   const value = useMemo(
-    () => ({ authEnabled, user, loading, signInWithEmail, signOut }),
-    [authEnabled, user, loading, signInWithEmail, signOut]
+    () => ({ authEnabled, user, loading, sendCode, verifyCode, signOut }),
+    [authEnabled, user, loading, sendCode, verifyCode, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

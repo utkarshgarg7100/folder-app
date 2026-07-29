@@ -5,21 +5,27 @@ import Link from "next/link";
 
 import { useAuth } from "./AuthProvider";
 
-type SubmitStatus = "idle" | "sending" | "sent" | "error";
+// "email" collects the address; "code" collects the 6 digits we mailed.
+type Step = "email" | "code";
+type SubmitStatus = "idle" | "busy" | "error";
 
 export default function AppHeader() {
-  const { authEnabled, user, loading, signInWithEmail, signOut } = useAuth();
+  const { authEnabled, user, loading, sendCode, verifyCode, signOut } = useAuth();
   const [panelOpen, setPanelOpen] = useState(false);
+  const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [status, setStatus] = useState<SubmitStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Closing the panel clears the transient submit state, so reopening always
-  // gives a usable form. Without this, a "sent" panel is sticky for the rest
-  // of the page's life and a typo'd address can never be corrected.
+  // gives a usable form. Without this, a half-finished code step is sticky for
+  // the rest of the page's life and a typo'd address can never be corrected.
   const togglePanel = () => {
     setPanelOpen((open) => {
       if (open) {
+        setStep("email");
+        setCode("");
         setStatus("idle");
         setErrorMessage(null);
       }
@@ -27,17 +33,45 @@ export default function AppHeader() {
     });
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSendCode = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setStatus("sending");
+    setStatus("busy");
     setErrorMessage(null);
-    const { error } = await signInWithEmail(email);
+    const { error } = await sendCode(email);
     if (error) {
       setStatus("error");
       setErrorMessage(error);
-    } else {
-      setStatus("sent");
+      return;
     }
+    setStatus("idle");
+    setStep("code");
+  };
+
+  const handleVerifyCode = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setStatus("busy");
+    setErrorMessage(null);
+    const { error } = await verifyCode(email, code.trim());
+    if (error) {
+      setStatus("error");
+      // Supabase returns the same opaque "invalid or has expired" text for a
+      // wrong code and a stale one, so we say what the user can act on.
+      setErrorMessage("That code didn't work. Check it, or request a new one.");
+      return;
+    }
+    // Success closes the panel; onAuthStateChange swaps the header to the
+    // signed-in view on its own.
+    setPanelOpen(false);
+    setStep("email");
+    setCode("");
+    setStatus("idle");
+  };
+
+  const restartWithNewEmail = () => {
+    setStep("email");
+    setCode("");
+    setStatus("idle");
+    setErrorMessage(null);
   };
 
   return (
@@ -97,13 +131,55 @@ export default function AppHeader() {
                 aria-label="Sign in"
                 className="absolute right-0 z-20 mt-2 w-72 rounded-2xl border border-line bg-paper-raised p-5 shadow-lg"
               >
-                {status === "sent" ? (
-                  <p className="text-sm leading-relaxed text-ink">
-                    Check <span className="font-data">{email}</span> for a
-                    sign-in link.
-                  </p>
+                {step === "code" ? (
+                  <form onSubmit={handleVerifyCode} className="flex flex-col gap-2">
+                    <p className="mb-1 text-sm leading-relaxed text-ink-soft">
+                      We emailed a 6-digit code to{" "}
+                      <span className="font-data text-ink">{email}</span>.
+                    </p>
+                    <label
+                      htmlFor="signin-code"
+                      className="text-xs font-medium uppercase tracking-wide text-ink-soft"
+                    >
+                      Code
+                    </label>
+                    <input
+                      id="signin-code"
+                      // Not type="number": that strips leading zeros and adds
+                      // spinners. inputMode gives phones the numeric keypad.
+                      type="text"
+                      required
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      maxLength={6}
+                      value={code}
+                      onChange={(e) =>
+                        setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                      }
+                      placeholder="123456"
+                      className="rounded-lg border border-line bg-paper px-3 py-2 font-data text-sm tracking-[0.3em] text-ink outline-none focus:border-teal"
+                    />
+                    <button
+                      type="submit"
+                      disabled={status === "busy" || code.length < 6}
+                      className="mt-1 rounded-lg bg-teal py-2.5 text-sm font-medium text-paper transition-colors hover:bg-teal-dark disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft"
+                    >
+                      {status === "busy" ? "Verifying…" : "Sign in"}
+                    </button>
+                    {status === "error" && errorMessage && (
+                      <p className="mt-1 text-xs text-brick">{errorMessage}</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={restartWithNewEmail}
+                      className="mt-1 self-start text-xs font-medium text-ink-soft underline transition-colors hover:text-ink"
+                    >
+                      Use a different email
+                    </button>
+                  </form>
                 ) : (
-                  <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+                  <form onSubmit={handleSendCode} className="flex flex-col gap-2">
                     <p className="mb-1 text-sm leading-relaxed text-ink-soft">
                       Sign in to save reports and track results over time.
                     </p>
@@ -125,10 +201,10 @@ export default function AppHeader() {
                     />
                     <button
                       type="submit"
-                      disabled={status === "sending"}
+                      disabled={status === "busy"}
                       className="mt-1 rounded-lg bg-teal py-2.5 text-sm font-medium text-paper transition-colors hover:bg-teal-dark disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft"
                     >
-                      {status === "sending" ? "Sending…" : "Send magic link"}
+                      {status === "busy" ? "Sending…" : "Email me a code"}
                     </button>
                     {status === "error" && errorMessage && (
                       <p className="mt-1 text-xs text-brick">{errorMessage}</p>
