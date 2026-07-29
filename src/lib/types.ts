@@ -25,10 +25,29 @@ export interface CrossDocumentRelation {
   involvedTests: string[];
 }
 
+/** One previously saved measurement of a test, for plotting a trend. */
+export interface TrendPoint {
+  value: string;
+  unit: string | null;
+  status: ResultStatus;
+  /** As printed on the document; not normalized/parsed, and often absent. */
+  reportDate: string | null;
+  /** When the row was saved — the only reliably ordered timestamp we have. */
+  savedAt: string;
+}
+
+/** Prior saved history for a single test name. */
+export interface TestTrend {
+  testName: string;
+  /** Oldest -> newest. Prior saved history only; excludes the current upload. */
+  points: TrendPoint[];
+}
+
 export interface AnalyzeResponse {
   documents: ExtractedDocument[];
   overallSummary: string;
   crossDocumentRelation: CrossDocumentRelation;
+  trends: TestTrend[];
 }
 
 export interface AnalyzeErrorResponse {

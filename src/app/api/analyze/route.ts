@@ -140,6 +140,9 @@ export async function POST(request: Request) {
     documents,
     overallSummary,
     crossDocumentRelation,
+    // Placeholder to satisfy the now-required field; Task 12 populates this
+    // from fetchTestHistory().
+    trends: [],
   };
 
   return NextResponse.json(response);
