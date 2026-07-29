@@ -52,7 +52,10 @@ export async function GET() {
       "id, file_name, doctor, clinic, report_date, created_at, saved_results(id, test_name, value, unit, reference_range, status, note)"
     )
     .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Without this the child rows have no guaranteed order, so a heap re-pack
+    // could silently scramble a report's rows relative to the printed document.
+    .order("created_at", { ascending: true, referencedTable: "saved_results" });
 
   if (error) {
     console.error("[api/history] saved_reports query failed:", error);
@@ -84,5 +87,10 @@ export async function GET() {
     })),
   }));
 
-  return NextResponse.json({ reports });
+  // Per-user medical data behind a shared CDN: never let an edge cache hold
+  // this, and never let it be served to a different session.
+  return NextResponse.json(
+    { reports },
+    { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } }
+  );
 }
