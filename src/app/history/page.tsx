@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import StatusBadge from "@/components/StatusBadge";
 import type { SavedReport } from "@/lib/types";
@@ -8,6 +8,16 @@ import type { SavedReport } from "@/lib/types";
 /** What a report is called in headings and confirm dialogs. */
 function reportTitle(report: SavedReport): string {
   return report.doctor || report.clinic || report.fileName;
+}
+
+/**
+ * `fetch` rejects with the engine's own wording ("Failed to fetch",
+ * "NetworkError when attempting to fetch resource") for aborts and offline
+ * errors. Never show that to a patient — it reads like a crash.
+ */
+function friendlyError(err: unknown, fallback: string): string {
+  if (err instanceof TypeError) return fallback;
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 
 export default function HistoryPage() {
@@ -28,6 +38,15 @@ export default function HistoryPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingAccount, setDeletingAccount] = useState(false);
+
+  // Refs, not state: clicks dispatched in the same tick all read the state
+  // value from before the first click's update commits, so `deletingAccount`
+  // and the `disabled` attribute both fail to stop them. Three same-tick
+  // clicks on "Delete all my data" otherwise fire three concurrent account
+  // deletions, and the losers can 500 and paint "could not delete" over an
+  // account that is in fact gone. Irreversible action; guard synchronously.
+  const accountBusyRef = useRef(false);
+  const reportBusyRef = useRef<Set<string>>(new Set());
 
   // Reset during render (the React-sanctioned "derive state from props"
   // pattern) rather than in an effect, so a switched account never renders
@@ -69,10 +88,10 @@ export default function HistoryPage() {
         setData({
           key: userId,
           reports: null,
-          fetchError:
-            err instanceof Error && err.message
-              ? err.message
-              : "Failed to load history.",
+          fetchError: friendlyError(
+            err,
+            "Could not load your history. Check your connection and try again."
+          ),
         });
       });
 
@@ -80,12 +99,15 @@ export default function HistoryPage() {
   }, [userId]);
 
   const handleDeleteReport = async (report: SavedReport) => {
-    if (deletingId || deletingAccount) return;
+    if (accountBusyRef.current || reportBusyRef.current.has(report.id)) return;
+    reportBusyRef.current.add(report.id);
+
     if (
       !window.confirm(
         `Delete "${reportTitle(report)}" from your history? This can't be undone.`
       )
     ) {
+      reportBusyRef.current.delete(report.id);
       return;
     }
 
@@ -120,22 +142,24 @@ export default function HistoryPage() {
       setExpandedId((id) => (id === report.id ? null : id));
     } catch (err) {
       setActionError(
-        err instanceof Error && err.message
-          ? err.message
-          : "Could not delete this report. Please try again."
+        friendlyError(err, "Could not delete this report. Please try again.")
       );
     } finally {
+      reportBusyRef.current.delete(report.id);
       setDeletingId(null);
     }
   };
 
   const handleDeleteAccount = async () => {
-    if (deletingAccount) return;
+    if (accountBusyRef.current) return;
+    accountBusyRef.current = true;
+
     if (
       !window.confirm(
         "Delete your account and every report you've saved? This can't be undone."
       )
     ) {
+      accountBusyRef.current = false;
       return;
     }
 
@@ -156,10 +180,12 @@ export default function HistoryPage() {
       window.location.href = "/";
     } catch (err) {
       setActionError(
-        err instanceof Error && err.message
-          ? err.message
-          : "Could not delete your account. Please try again."
+        friendlyError(err, "Could not delete your account. Please try again.")
       );
+      // Deliberately not cleared on success: `window.location.href` tears the
+      // page down, and re-arming the button first would let a queued click
+      // fire a second deletion at an account that no longer exists.
+      accountBusyRef.current = false;
       setDeletingAccount(false);
     }
   };
@@ -196,10 +222,12 @@ export default function HistoryPage() {
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-12">
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-ink">Your history</h1>
-        {/* Deliberately not gated on having reports: an account with zero
-            saved reports still has an auth user, an email and a profile row,
-            and this is the only way to erase them. */}
-        {reports !== null && (
+        {/* Gated only on being signed in. Not on having reports (an account
+            with none still has an auth user, an email and a profile row), and
+            not on the history load succeeding — a user whose history endpoint
+            is broken is exactly the user most likely to want out, and this is
+            the only way to erase themselves. */}
+        {(reports !== null || fetchError !== null) && (
           <button
             type="button"
             onClick={handleDeleteAccount}
@@ -265,7 +293,12 @@ export default function HistoryPage() {
                       setExpandedId((id) => (id === report.id ? null : report.id))
                     }
                     aria-expanded={expanded}
-                    aria-controls={panelId}
+                    // Only while the panel is actually in the DOM: a dangling
+                    // aria-controls points a screen reader at an id that
+                    // resolves to nothing. aria-expanded alone conveys the
+                    // collapsed state. (Kept unrendered rather than
+                    // hidden-but-present so collapsed reports cost no DOM.)
+                    aria-controls={expanded ? panelId : undefined}
                     className="text-sm text-teal hover:underline"
                   >
                     {expanded ? "Hide values" : "Show values"}
