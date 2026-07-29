@@ -16,15 +16,28 @@ const nextConfig: NextConfig = {
   // nothing depends on it staying a transitive one.
   serverExternalPackages: ["pdf-to-img", "pdfjs-dist", "@napi-rs/canvas"],
 
-  // @napi-rs/canvas picks its native .node binary with a platform-specific
-  // require built at runtime, so tracing cannot see the binary either — the JS
-  // would ship without the addon it needs. Name the packages explicitly so the
-  // Linux build the deploy actually runs on is uploaded with the function.
+  // Everything pdfjs needs at runtime that static tracing cannot see, because
+  // each is resolved from a path built at runtime rather than imported:
+  //
+  //  - @napi-rs/canvas picks its native .node binary with a platform-specific
+  //    require, so the JS would otherwise ship without its addon.
+  //  - pdf.worker.mjs is spawned by filename by the worker setup.
+  //  - standard_fonts/ and cmaps/ are read through pdf-to-img's
+  //    standardFontDataUrl / cMapUrl, both built from a resolved package path.
+  //  - wasm/ backs pdfjs's JPEG2000 and JBIG2 decoders, which scanned lab
+  //    reports do hit.
+  //
+  // Listed file-by-file rather than sweeping in legacy/build, which is 16 MB
+  // and mostly source maps. Total added here is roughly 5 MB.
   outputFileTracingIncludes: {
     "/api/analyze": [
       "./node_modules/@napi-rs/canvas/**",
       "./node_modules/@napi-rs/canvas-linux-x64-gnu/**",
       "./node_modules/@napi-rs/canvas-linux-x64-musl/**",
+      "./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
+      "./node_modules/pdfjs-dist/standard_fonts/**",
+      "./node_modules/pdfjs-dist/cmaps/**",
+      "./node_modules/pdfjs-dist/wasm/**",
     ],
   },
 };
