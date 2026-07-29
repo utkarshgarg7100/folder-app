@@ -6,6 +6,13 @@ reference range, and — when more than one report is uploaded — checks whethe
 values across the reports relate to each other. Results are shown as a
 plain-language summary, a chart, and a per-document table, never a diagnosis.
 
+Signing in is optional and adds saved history plus trend comparison across
+visits. Guests are unaffected: no login wall, nothing stored.
+
+> **Reviewing this project?** See **[REVIEWING.md](REVIEWING.md)** for a guided
+> walkthrough, the reasoning behind the non-obvious decisions, and an honest
+> list of known limitations.
+
 ## How it works
 
 - **Frontend** (`src/app/page.tsx`, `src/components/*`): upload screen with
@@ -51,29 +58,38 @@ plain-language summary, a chart, and a per-document table, never a diagnosis.
    ```
    Open <http://localhost:3000>.
 
-## Deploying to Netlify
+## Deploying
 
-1. Push this repo to GitHub (already done if you're reading this from the
-   deployed repo).
-2. In the [Netlify dashboard](https://app.netlify.com), click **Add new site
-   → Import an existing project**, pick this repo, and authorize the GitHub
-   connection. Netlify auto-detects Next.js via `netlify.toml`
-   (`@netlify/plugin-nextjs`) — no build settings to change.
-3. Before (or right after) the first deploy, go to **Site configuration →
-   Environment variables** and add:
-   - `GROQ_API_KEY` — your Groq API key
-   - `GROQ_MODEL` — optional, only if you want to override the default model
-   Do **not** put these in the repo — Netlify injects them at build/runtime
-   only. Redeploy after adding them if the first deploy already ran.
-4. Deploy. `/api/analyze` runs as a Netlify Function. Netlify's default
-   function timeout is **10 seconds** (up to 26s on some paid plans), which
-   can be tight for multiple documents or multi-page PDFs since each document
-   makes its own LLM call. If you hit timeouts, try fewer/smaller files first,
-   or check Netlify's current function timeout limits for your plan.
+**Deploy to Vercel.** This is a hosting requirement, not a preference: a
+single analysis makes two sequential vision-model calls and takes **15-30s**
+(measured: extraction ~10s, synthesis ~6s, rasterizing <1s). Netlify caps
+synchronous functions at **10s** (26s on paid plans), so `/api/analyze` times
+out there. Vercel supports the `maxDuration = 60` already exported by
+`src/app/api/analyze/route.ts`.
 
-   (The `maxDuration` export in `src/app/api/analyze/route.ts` is a
-   Vercel-specific Next.js config Netlify ignores — harmless to leave in, but
-   it doesn't extend the timeout here.)
+`netlify.toml` is kept in the repo so Netlify remains an option if the request
+is ever split into separate extraction and synthesis endpoints, which would
+bring each stage under the limit.
+
+1. Push this repo to GitHub.
+2. At [vercel.com/new](https://vercel.com/new), import the repo. Next.js is
+   auto-detected — no build settings to change.
+3. **Add environment variables before the first build**, under Settings →
+   Environment Variables:
+   - `GROQ_API_KEY` — required
+   - `GROQ_MODEL` — optional, overrides the default model
+   - `NEXT_PUBLIC_SUPABASE_URL` — only for sign-in/history
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — only for sign-in/history
+   - `SUPABASE_SERVICE_ROLE_KEY` — only for sign-in/history; server-only, and
+     it bypasses Row Level Security, so never expose it to the client
+
+   `NEXT_PUBLIC_*` values are **inlined at build time**, so adding them after a
+   deploy requires a *rebuild*, not just a restart. A build made without them
+   ships with auth silently disabled.
+4. After deploying, add your deployment URL to Supabase under **Authentication
+   → URL Configuration**, as both the **Site URL** and an entry in **Redirect
+   URLs**. Without this, magic links redirect to `localhost` and sign-in
+   appears broken for everyone but you.
 
 ## Notes & limits
 

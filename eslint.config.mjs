@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Agent tooling state, including git worktrees that contain a full second
+    // copy of this source tree. Without this, `npm run lint` reports every
+    // file twice and drowns real findings in thousands of duplicates.
+    ".claude/**",
   ]),
 ]);
 
