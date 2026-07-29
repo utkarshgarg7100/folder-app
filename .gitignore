@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Agent tooling state (contains git worktrees with full source + node_modules copies)
+.claude/
