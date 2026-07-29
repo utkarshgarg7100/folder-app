@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { pdfToPngPages } from "@/lib/pdf";
 import { extractDocument, synthesizeSummary } from "@/lib/groq";
-import type { AnalyzeResponse, ExtractedDocument } from "@/lib/types";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { fetchTestHistory } from "@/lib/supabase/history";
+import type { AnalyzeResponse, ExtractedDocument, TestTrend } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -114,6 +116,31 @@ export async function POST(request: Request) {
 
   const usableDocuments = documents.filter((d) => !d.error);
 
+  // Trend history is decoration on top of the analysis: a signed-out user, an
+  // unconfigured Supabase, or a failed history read must all degrade to [] and
+  // let the analysis itself succeed.
+  //
+  // The client here MUST be the cookie-bound one from
+  // createServerSupabaseClient() — RLS on saved_results is the authorization
+  // boundary that keeps one user's history out of another's response. Never
+  // swap in createAdminSupabaseClient(), which bypasses RLS.
+  let trends: TestTrend[] = [];
+  try {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const testNames = [
+        ...new Set(usableDocuments.flatMap((d) => d.results.map((r) => r.test))),
+      ];
+      trends = await fetchTestHistory(supabase, user.id, testNames);
+    }
+  } catch (err) {
+    console.error("[api/analyze] history lookup failed:", err);
+    trends = [];
+  }
+
   let overallSummary = "";
   let crossDocumentRelation: AnalyzeResponse["crossDocumentRelation"] = {
     found: false,
@@ -123,13 +150,17 @@ export async function POST(request: Request) {
 
   if (usableDocuments.length > 0) {
     try {
-      const synthesis = await synthesizeSummary(documents);
+      const synthesis = await synthesizeSummary(documents, trends);
       overallSummary = synthesis.overallSummary;
       crossDocumentRelation = synthesis.crossDocumentRelation;
     } catch (err) {
+      // The real error goes to the server log only. Raw SDK errors can carry
+      // API-key, rate-limit and connection detail, and this string is shown
+      // verbatim to a patient — so the user-facing copy is fixed text with no
+      // interpolation.
+      console.error("[api/analyze] synthesizeSummary failed:", err);
       overallSummary =
-        "We extracted the test values below, but couldn't generate a plain-language summary right now. " +
-        (err instanceof Error ? err.message : "Please try again.");
+        "We extracted the test values below, but couldn't generate a plain-language summary right now. Please try again in a moment.";
     }
   } else {
     overallSummary =
@@ -140,9 +171,7 @@ export async function POST(request: Request) {
     documents,
     overallSummary,
     crossDocumentRelation,
-    // Placeholder to satisfy the now-required field; Task 12 populates this
-    // from fetchTestHistory().
-    trends: [],
+    trends,
   };
 
   return NextResponse.json(response);
