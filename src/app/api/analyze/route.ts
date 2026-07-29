@@ -41,13 +41,27 @@ async function extractOne(file: File): Promise<ExtractedDocument> {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const allPages =
-      file.type === "application/pdf"
-        ? (await pdfToPngPages(buffer)).map((png) => ({
-            mimeType: "image/png",
-            base64: png.toString("base64"),
-          }))
-        : [{ mimeType: file.type, base64: buffer.toString("base64") }];
+    // Only rasterize the pages we will actually send. Rendering is the most
+    // expensive non-model step, and this request runs near the serverless
+    // timeout, so a long PDF must not pay for pages it will never use.
+    const rasterStart = Date.now();
+    let allPages: { mimeType: string; base64: string }[];
+    let totalPages: number;
+
+    if (file.type === "application/pdf") {
+      const rendered = await pdfToPngPages(buffer, MAX_PAGES_PER_DOCUMENT);
+      allPages = rendered.pages.map((png) => ({
+        mimeType: "image/png",
+        base64: png.toString("base64"),
+      }));
+      totalPages = rendered.totalPages;
+    } else {
+      allPages = [{ mimeType: file.type, base64: buffer.toString("base64") }];
+      totalPages = 1;
+    }
+    console.log(
+      `[analyze] rasterized ${allPages.length}/${totalPages} page(s) of ${file.name} in ${Date.now() - rasterStart}ms`
+    );
 
     if (allPages.length === 0) {
       return {
@@ -61,15 +75,19 @@ async function extractOne(file: File): Promise<ExtractedDocument> {
       };
     }
 
-    const pages = allPages.slice(0, MAX_PAGES_PER_DOCUMENT);
+    const pages = allPages;
     const truncatedNote =
-      allPages.length > MAX_PAGES_PER_DOCUMENT
+      totalPages > MAX_PAGES_PER_DOCUMENT
         ? [
-            `This document has ${allPages.length} pages, but only the first ${MAX_PAGES_PER_DOCUMENT} were analyzed (model limit).`,
+            `This document has ${totalPages} pages, but only the first ${MAX_PAGES_PER_DOCUMENT} were analyzed (model limit).`,
           ]
         : [];
 
+    const extractStart = Date.now();
     const extracted = await extractDocument(file.name, pages);
+    console.log(
+      `[analyze] extracted ${file.name} in ${Date.now() - extractStart}ms`
+    );
     return {
       ...base,
       ...extracted,
@@ -150,7 +168,9 @@ export async function POST(request: Request) {
 
   if (usableDocuments.length > 0) {
     try {
+      const synthStart = Date.now();
       const synthesis = await synthesizeSummary(documents, trends);
+      console.log(`[analyze] synthesized in ${Date.now() - synthStart}ms`);
       overallSummary = synthesis.overallSummary;
       crossDocumentRelation = synthesis.crossDocumentRelation;
     } catch (err) {
