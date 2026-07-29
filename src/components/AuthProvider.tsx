@@ -19,7 +19,7 @@ interface AuthContextValue {
   authEnabled: boolean;
   user: User | null;
   loading: boolean;
-  /** Emails a 6-digit code. Does not sign the user in on its own. */
+  /** Emails a sign-in code. Does not sign the user in on its own. */
   sendCode: (email: string) => Promise<{ error: string | null }>;
   /** Exchanges the emailed code for a session. */
   verifyCode: (email: string, code: string) => Promise<{ error: string | null }>;

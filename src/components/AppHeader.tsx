@@ -134,7 +134,7 @@ export default function AppHeader() {
                 {step === "code" ? (
                   <form onSubmit={handleVerifyCode} className="flex flex-col gap-2">
                     <p className="mb-1 text-sm leading-relaxed text-ink-soft">
-                      We emailed a 6-digit code to{" "}
+                      We emailed a sign-in code to{" "}
                       <span className="font-data text-ink">{email}</span>.
                     </p>
                     <label
@@ -146,23 +146,30 @@ export default function AppHeader() {
                     <input
                       id="signin-code"
                       // Not type="number": that strips leading zeros and adds
-                      // spinners. inputMode gives phones the numeric keypad.
+                      // spinners.
                       type="text"
                       required
-                      inputMode="numeric"
+                      // The code's length and alphabet are a Supabase project
+                      // setting (Auth → Email OTP Length, 6-10), so neither is
+                      // hardcoded here. We only strip whitespace, which is all
+                      // a copy-paste from an email realistically picks up —
+                      // filtering to digits would silently eat characters from
+                      // a non-numeric code as the user typed.
                       autoComplete="one-time-code"
                       autoFocus
-                      maxLength={6}
+                      maxLength={10}
                       value={code}
                       onChange={(e) =>
-                        setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                        setCode(e.target.value.replace(/\s/g, "").slice(0, 10))
                       }
-                      placeholder="123456"
-                      className="rounded-lg border border-line bg-paper px-3 py-2 font-data text-sm tracking-[0.3em] text-ink outline-none focus:border-teal"
+                      placeholder="Paste your code"
+                      className="rounded-lg border border-line bg-paper px-3 py-2 font-data text-sm tracking-[0.2em] text-ink outline-none focus:border-teal"
                     />
                     <button
                       type="submit"
-                      disabled={status === "busy" || code.length < 6}
+                      // Length is server-validated; the button only guards
+                      // against submitting an empty field.
+                      disabled={status === "busy" || code.trim().length === 0}
                       className="mt-1 rounded-lg bg-teal py-2.5 text-sm font-medium text-paper transition-colors hover:bg-teal-dark disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft"
                     >
                       {status === "busy" ? "Verifying…" : "Sign in"}
