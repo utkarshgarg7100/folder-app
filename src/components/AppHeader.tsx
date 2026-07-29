@@ -14,6 +14,19 @@ export default function AppHeader() {
   const [status, setStatus] = useState<SubmitStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Closing the panel clears the transient submit state, so reopening always
+  // gives a usable form. Without this, a "sent" panel is sticky for the rest
+  // of the page's life and a typo'd address can never be corrected.
+  const togglePanel = () => {
+    setPanelOpen((open) => {
+      if (open) {
+        setStatus("idle");
+        setErrorMessage(null);
+      }
+      return !open;
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setStatus("sending");
@@ -39,12 +52,13 @@ export default function AppHeader() {
 
         {/* Guest-only mode: no auth affordances at all. */}
         {!authEnabled ? null : loading ? (
-          // Neutral placeholder holding the same space, so a signed-in user
-          // never sees a "Sign in" button flash and the header never shifts.
-          <div
-            aria-hidden="true"
-            className="h-9 w-44 rounded-lg border border-line bg-paper-raised/60"
-          />
+          // Invisible placeholder sized to the signed-out "Sign in" button
+          // (34x74px: py-1.5 + text-sm line-height + 1px border, px-3 + label).
+          // It has no border or background, so when auth resolves nothing
+          // visibly resizes — the button simply appears in the space already
+          // reserved for it. The markup deliberately contains no "Sign in"
+          // text so the SSR HTML can never flash it to a signed-in user.
+          <div aria-hidden="true" className="h-[34px] w-[74px]" />
         ) : user ? (
           <div className="flex items-center gap-3 text-sm">
             <Link
@@ -68,9 +82,9 @@ export default function AppHeader() {
           <div className="relative">
             <button
               type="button"
-              onClick={() => setPanelOpen((open) => !open)}
+              onClick={togglePanel}
               aria-expanded={panelOpen}
-              aria-haspopup="dialog"
+              aria-controls="signin-panel"
               className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink-soft transition-colors hover:bg-paper-raised"
             >
               Sign in
@@ -78,7 +92,8 @@ export default function AppHeader() {
 
             {panelOpen && (
               <div
-                role="dialog"
+                id="signin-panel"
+                role="group"
                 aria-label="Sign in"
                 className="absolute right-0 z-20 mt-2 w-72 rounded-2xl border border-line bg-paper-raised p-5 shadow-lg"
               >
