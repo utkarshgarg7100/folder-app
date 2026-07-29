@@ -1,5 +1,5 @@
 import Groq from "groq-sdk";
-import type { ExtractedDocument, CrossDocumentRelation } from "./types";
+import type { ExtractedDocument, CrossDocumentRelation, TestTrend } from "./types";
 
 const MODEL = process.env.GROQ_MODEL || "qwen/qwen3.6-27b";
 
@@ -82,7 +82,7 @@ Rules:
 
 const SYNTHESIS_SYSTEM_PROMPT = `You are a careful, plain-language health-report assistant helping a layperson (often an adult child worried about a parent's health) understand lab results that have already been extracted from one or more documents. You are NOT a doctor and must never diagnose, speculate about causes, or recommend treatment.
 
-You will be given the structured extraction (JSON) for one or more documents. Respond with STRICT JSON ONLY matching exactly this shape:
+You will be given the structured extraction (JSON) for one or more documents, and optionally a block of the same user's prior saved test history from earlier visits. Respond with STRICT JSON ONLY matching exactly this shape:
 
 {
   "overallSummary": string,
@@ -95,8 +95,11 @@ You will be given the structured extraction (JSON) for one or more documents. Re
 
 Rules:
 - "overallSummary" is 2-4 plain-language sentences, calm and reassuring in tone, summarizing what was found across all documents combined (how many values were in range / out of range / unclear, and in plain words what stands out). No medical jargon without a plain-language gloss.
-- Only set "crossDocumentRelation.found" to true if there are 2 or more documents AND you can point to a genuine, specific relationship between values across the *different* documents (e.g. two related markers moving in a related direction across different reports/dates). If there is only one document, or no clear cross-document relationship, set "found" to false, "description" to null, and "involvedTests" to [].
-- When "found" is true, phrase "description" as an observation to raise with a doctor, never as a diagnosis or conclusion (e.g. "X and Y both moved in a related direction across these reports — this pattern may be worth mentioning to a doctor," not "this means...").
+- "crossDocumentRelation" is used for TWO kinds of patterns — treat both the same way:
+  (a) a relationship between values across different documents in THIS batch, or
+  (b) a meaningful trend for the same test across the user's prior saved history and this batch (e.g. a value that has moved in the same direction across 2+ prior visits plus this one).
+  Only set "found" to true when you can point to a genuine, specific instance of (a) or (b) — never invent one. If neither applies, set "found" to false, "description" to null, and "involvedTests" to [].
+- When "found" is true, phrase "description" as an observation to raise with a doctor, never as a diagnosis or conclusion (e.g. "X and Y both moved in a related direction across these reports — this pattern may be worth mentioning to a doctor," not "this means..."). If the pattern is a multi-visit trend (case b), say so explicitly (e.g. "Across your last 3 saved reports, X has been trending upward...").
 - Output only the JSON object, nothing else.`;
 
 interface PageImage {
@@ -158,7 +161,8 @@ export async function extractDocument(
 }
 
 export async function synthesizeSummary(
-  documents: ExtractedDocument[]
+  documents: ExtractedDocument[],
+  history: TestTrend[] = []
 ): Promise<{ overallSummary: string; crossDocumentRelation: CrossDocumentRelation }> {
   const client = getClient();
 
@@ -172,6 +176,15 @@ export async function synthesizeSummary(
     error: doc.error,
   }));
 
+  const historyBlock =
+    history.length > 0
+      ? `\n\nThis user also has prior saved history for some of these tests (oldest to newest, from earlier visits, not part of this upload):\n\n${JSON.stringify(
+          history,
+          null,
+          2
+        )}`
+      : "";
+
   const completion = await client.chat.completions.create({
     model: MODEL,
     temperature: 0,
@@ -181,7 +194,7 @@ export async function synthesizeSummary(
       { role: "system", content: SYNTHESIS_SYSTEM_PROMPT },
       {
         role: "user",
-        content: `Here is the extracted data from ${documents.length} document(s):\n\n${JSON.stringify(payload, null, 2)}`,
+        content: `Here is the extracted data from ${documents.length} document(s):\n\n${JSON.stringify(payload, null, 2)}${historyBlock}`,
       },
     ],
   });
