@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { ExtractedDocument } from "@/lib/types";
+import type { ExtractedDocument, TestTrend } from "@/lib/types";
 import StatusBadge from "./StatusBadge";
 import { useAuth } from "./AuthProvider";
+import TrendSparkline from "./TrendSparkline";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -25,7 +26,13 @@ function documentKey(doc: ExtractedDocument): string {
   ]);
 }
 
-export default function DocumentCard({ doc }: { doc: ExtractedDocument }) {
+export default function DocumentCard({
+  doc,
+  trends = [],
+}: {
+  doc: ExtractedDocument;
+  trends?: TestTrend[];
+}) {
   const { authEnabled, user, loading } = useAuth();
 
   const docKey = documentKey(doc);
@@ -88,6 +95,19 @@ export default function DocumentCard({ doc }: { doc: ExtractedDocument }) {
       inFlight.current = false;
     }
   };
+
+  // Matching mirrors fetchTestHistory: case-insensitive on test name.
+  const trendFor = (testName: string) =>
+    trends.find(
+      (t) =>
+        t.testName.toLowerCase() === testName.toLowerCase() &&
+        t.points.length > 0
+    );
+
+  // The Trend column exists only when some row in THIS document actually has
+  // history — otherwise (guests, first-ever upload) every cell would be empty
+  // under a heading that never means anything.
+  const showTrendColumn = doc.results.some((r) => trendFor(r.test) !== undefined);
 
   const savable = !doc.error && doc.results.length > 0;
   const disabled = saveState === "saving" || saveState === "saved";
@@ -168,6 +188,9 @@ export default function DocumentCard({ doc }: { doc: ExtractedDocument }) {
                 <th className="pb-2 pr-4 font-medium">Value</th>
                 <th className="pb-2 pr-4 font-medium">Reference range</th>
                 <th className="pb-2 font-medium">Status</th>
+                {showTrendColumn && (
+                  <th className="pb-2 pl-4 font-medium">Trend</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -184,6 +207,20 @@ export default function DocumentCard({ doc }: { doc: ExtractedDocument }) {
                   <td className="py-2.5">
                     <StatusBadge status={r.status} />
                   </td>
+                  {showTrendColumn && (
+                    <td className="py-2.5 pl-4">
+                      {(() => {
+                        const trend = trendFor(r.test);
+                        return trend ? (
+                          <TrendSparkline
+                            testName={r.test}
+                            points={trend.points}
+                            current={{ value: r.value, status: r.status }}
+                          />
+                        ) : null;
+                      })()}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

@@ -61,7 +61,7 @@ export default function ResultsScreen({ result, onStartOver }: ResultsScreenProp
           Documents
         </h2>
         {result.documents.map((doc, i) => (
-          <DocumentCard key={`${doc.fileName}-${i}`} doc={doc} />
+          <DocumentCard key={`${doc.fileName}-${i}`} doc={doc} trends={result.trends} />
         ))}
       </section>
 
