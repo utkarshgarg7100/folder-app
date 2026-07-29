@@ -119,7 +119,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        // Land on the app root, not /auth/callback. Supabase's default email
+        // templates return the session in a URL fragment, and only the client
+        // can read a fragment — routing through the server callback means a
+        // redirect first, and a fragment survives a redirect only by browser
+        // convention, not by guarantee. Landing directly on a client-rendered
+        // page removes that dependency entirely.
+        options: { emailRedirectTo: `${window.location.origin}/` },
       });
       return { error: error?.message ?? null };
     },
