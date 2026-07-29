@@ -34,3 +34,25 @@ export interface AnalyzeResponse {
 export interface AnalyzeErrorResponse {
   error: string;
 }
+
+/** A single stored result row, as returned by GET /api/history. */
+export interface SavedResult {
+  id: string;
+  test: string;
+  value: string;
+  unit: string | null;
+  referenceRange: string | null;
+  status: ResultStatus;
+  note: string | null;
+}
+
+/** A stored report with its results, as returned by GET /api/history. */
+export interface SavedReport {
+  id: string;
+  fileName: string;
+  doctor: string | null;
+  clinic: string | null;
+  date: string | null;
+  savedAt: string;
+  results: SavedResult[];
+}
