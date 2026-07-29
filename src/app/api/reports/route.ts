@@ -16,16 +16,27 @@ const VALID_STATUSES: ReadonlySet<string> = new Set<ResultStatus>([
   "unclear",
 ]);
 
+// A real lab report has tens of results, not thousands; 200 leaves generous
+// headroom for a large multi-panel report while bounding write volume.
+const MAX_RESULTS = 200;
+// Longest realistic field is a free-text note; 2000 chars is far past any
+// legitimate test name, value, unit, range, doctor, clinic, date or file name.
+const MAX_TEXT_CHARS = 2000;
+
+function isText(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_TEXT_CHARS;
+}
+
 function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === "string";
+  return value === null || isText(value);
 }
 
 function isValidResult(value: unknown): value is TestResult {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
   return (
-    typeof r.test === "string" &&
-    typeof r.value === "string" &&
+    isText(r.test) &&
+    isText(r.value) &&
     isNullableString(r.unit) &&
     isNullableString(r.referenceRange) &&
     typeof r.status === "string" &&
@@ -38,7 +49,7 @@ function isValidBody(body: unknown): body is SaveReportBody {
   if (!body || typeof body !== "object") return false;
   const b = body as Record<string, unknown>;
   return (
-    typeof b.fileName === "string" &&
+    isText(b.fileName) &&
     isNullableString(b.doctor) &&
     isNullableString(b.clinic) &&
     isNullableString(b.date) &&
@@ -75,6 +86,25 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null);
+
+  // Cheap length checks first, so an oversized array is rejected before the
+  // per-element validation walks it.
+  const rawResults = (body as { results?: unknown } | null)?.results;
+  if (Array.isArray(rawResults)) {
+    if (rawResults.length > MAX_RESULTS) {
+      return NextResponse.json(
+        { error: `Too many results in this report (max ${MAX_RESULTS}).` },
+        { status: 400 }
+      );
+    }
+    if (rawResults.length === 0) {
+      return NextResponse.json(
+        { error: "This report has no results to save." },
+        { status: 400 }
+      );
+    }
+  }
+
   if (!isValidBody(body)) {
     return NextResponse.json(
       { error: "Malformed report payload." },
@@ -95,13 +125,14 @@ export async function POST(request: Request) {
     .single();
 
   if (reportError || !report) {
+    console.error("[api/reports] saved_reports insert failed:", reportError);
     return NextResponse.json(
-      { error: reportError?.message ?? "Could not save this report." },
+      { error: "Could not save this report. Please try again." },
       { status: 500 }
     );
   }
 
-  if (body.results.length > 0) {
+  {
     const rows = body.results.map((r) => ({
       saved_report_id: report.id,
       user_id: user.id,
@@ -118,9 +149,23 @@ export async function POST(request: Request) {
       .insert(rows);
 
     if (resultsError) {
+      console.error("[api/reports] saved_results insert failed:", resultsError);
       // Don't leave a half-saved report behind.
-      await supabase.from("saved_reports").delete().eq("id", report.id);
-      return NextResponse.json({ error: resultsError.message }, { status: 500 });
+      const { error: cleanupError } = await supabase
+        .from("saved_reports")
+        .delete()
+        .eq("id", report.id);
+      if (cleanupError) {
+        console.error(
+          "[api/reports] compensating delete failed for report",
+          report.id,
+          cleanupError
+        );
+      }
+      return NextResponse.json(
+        { error: "Could not save this report. Please try again." },
+        { status: 500 }
+      );
     }
   }
 
