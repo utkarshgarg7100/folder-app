@@ -63,13 +63,9 @@ export async function POST(request: Request) {
   try {
     supabase = await createServerSupabaseClient();
   } catch (err) {
+    console.error("[POST /api/reports] Supabase client unavailable:", err);
     return NextResponse.json(
-      {
-        error:
-          err instanceof Error
-            ? err.message
-            : "History is not configured on this deployment.",
-      },
+      { error: "History is not configured on this deployment." },
       { status: 501 }
     );
   }
