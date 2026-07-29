@@ -147,7 +147,8 @@ export default function UploadScreen({ onAnalyze, disabled }: UploadScreenProps)
       </button>
 
       <p className="mt-4 text-center text-xs text-ink-soft">
-        Files are processed to extract test values and are not stored after your session.
+        Your files are never stored. Extracted values are saved only if you sign
+        in and choose &quot;Save to my history&quot; on the results screen.
       </p>
     </div>
   );
