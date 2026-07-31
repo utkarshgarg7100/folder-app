@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { fetchTestHistory } from "@/lib/supabase/history";
 import type { AnalyzeResponse, ExtractedDocument, TestTrend } from "@/lib/types";
 
+export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
